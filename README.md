@@ -6,7 +6,7 @@ The code runs on the [SciTextures dataset.](https://zenodo.org/records/17485502)
 
 For more details on the method, see: [SciTextures: Collecting and Connecting Visual Patterns, Models, and Code Across Science and Art.](https://arxiv.org/pdf/2511.01817) 
 
-​![](/scheme.jpg)
+​![](/im2im.jpg)
 
 # How to use:​
 
