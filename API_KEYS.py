@@ -3,4 +3,5 @@ gemini_api_key=''
 grok_api_key = ""
 together_api_key = ''
 claude_api_key =  ''
+openrouter_api_key = ""
 
