@@ -7,6 +7,7 @@ import API_KEYS
 from openai import OpenAI
 
 import json_pkl
+import tools.Code_Exec as Code_Exec
 import textwrap
 import cv2
 import os
@@ -70,15 +71,18 @@ def get_response_image_txt_json(
     messages: list=[]
 ) -> str:
     # Send querty
-    openai_models=["gpt-5-mini","gpt-5", "gpt-oss-120b", "gpt-oss-20b","o4-mini"]
+    openai_models=["gpt-5-mini","gpt-5", "gpt-oss-120b", "gpt-oss-20b","o4-mini","gpt-5.2-2025-12-11"]
     together_models=["google/gemma-3n-E4B-it","meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8","meta-llama/Llama-4-Scout-17B-16E-Instruct","Qwen/Qwen2.5-VL-72B-Instruct","deepseek-ai/DeepSeek-R1-0528"]
-    gemini_models=["gemini-2.5-pro","gemini-2.5-flash"]
+    gemini_models=["gemini-3-pro-preview","gemini-2.5-pro","gemini-2.5-flash"]
     grok_models = ["grok-4-fast-reasoning", "grok-4-fast-non-reasoning","grok-4","grok-2-vision","grok-2-vision-1212"]
     claude_models = ["claude-3-5-sonnet-latest","claude-sonnet-4-5-20250929","claude-sonnet-4-5-latest"]
+    open_router=["qwen/qwen3-vl-32b-instruct","openai/gpt-5","z-ai/glm-4.6v","qwen/qwen3-vl-32b-instruct","qwen/qwen3-vl-8b-instruct"]
     l = len(messages)
     for i in range(4):
         messages = messages[:l]
         try:
+                if model in open_router:
+                    return get_response_image_txt_json_openrouter(text, img_path, model, as_json, messages)
                 if model in openai_models:
                     return get_response_image_txt_json_openai(text,img_path,model,as_json,messages)
                 if model in together_models:
@@ -96,6 +100,125 @@ def get_response_image_txt_json(
              print("Error getting answer:\n",e,"\nModel:",model)
              print("sleeping 6 seconds")
              time.sleep(6)
+
+
+
+###############################################################################################################################
+import base64
+import json
+import mimetypes
+from typing import Optional, Union, List, Dict, Any
+
+import requests
+
+
+def get_mime_type(path: str) -> str:
+    mime, _ = mimetypes.guess_type(path)
+    return mime or "application/octet-stream"
+
+
+def normalize_to_json(s: str) -> str:
+    """
+    Best-effort cleanup in case the model returns JSON wrapped in code fences.
+    If your previous normalize_to_json already exists, you can remove this and use yours.
+    """
+    s = s.strip()
+    if s.startswith("```"):
+        # remove ```json ... ```
+        s = s.split("```", 1)[1]
+        s = s.rsplit("```", 1)[0]
+    return s.strip()
+
+#############################################################################################################
+def get_response_image_txt_json_openrouter(
+    text: str,
+    img_path: Optional[Union[List[str], Dict[str, str]]] = None,  # list of paths OR dict(label->path)
+    model: str = "qwen/qwen2.5-vl-72b-instruct",  # OpenRouter model slug (adjust if needed)
+    as_json: bool = True,
+    messages: Optional[List[Dict[str, Any]]] = None,
+    api_key: Optional[str] = None,
+    site_url: Optional[str] = None,      # optional: OpenRouter leaderboard attribution
+    app_name: Optional[str] = None,      # optional: OpenRouter leaderboard attribution
+    timeout: int = 120,
+) -> Any:
+    api_key=API_KEYS.openrouter_api_key
+    """
+
+
+    Notes:
+    - OpenRouter uses an OpenAI-compatible Chat Completions API.
+    - Images are passed via content blocks with {"type":"image_url","image_url":{"url":...}}.
+    - If as_json=True, we request JSON mode: response_format={"type":"json_object"}.
+      (Model support varies; if the model doesn't support it, you may need to enforce JSON via prompting.)
+
+    Returns:
+      - Parsed JSON (dict) if as_json=True
+      - Raw string otherwise
+    """
+    if messages is None:
+        messages = []
+    if api_key is None:
+        raise ValueError("api_key is required (your OpenRouter API key).")
+
+    # 1) Build the user 'content' as a list of blocks
+    content: List[Dict[str, Any]] = []
+    if text:
+        content.append({"type": "text", "text": text})
+
+    # 2) Attach images as base64 data URLs
+    # Accept either list[str] or dict[label->path]
+    if img_path:
+        if isinstance(img_path, dict):
+            items = list(img_path.items())  # (label, path)
+        else:
+            # if list, create simple labels: image_0, image_1, ...
+            items = [(f"image_{i}", p) for i, p in enumerate(img_path)]
+
+        for label, pth in items:
+            with open(pth, "rb") as f:
+                b64 = base64.b64encode(f.read()).decode("utf-8")
+
+            mime = get_mime_type(pth)
+            content.append({"type": "text", "text": f"This is image {label}:"})
+            content.append(
+                {
+                    "type": "image_url",
+                    "image_url": {"url": f"data:{mime};base64,{b64}"},
+                }
+            )
+
+    if content:
+        messages.append({"role": "user", "content": content})
+
+    # 3) OpenRouter request (OpenAI-compatible)
+    url = "https://openrouter.ai/api/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+    # Optional attribution headers (recommended by OpenRouter)
+    if site_url:
+        headers["HTTP-Referer"] = site_url
+    if app_name:
+        headers["X-Title"] = app_name
+
+    payload: Dict[str, Any] = {
+        "model": model,
+        "messages": messages,
+    }
+    if as_json:
+        payload["response_format"] = {"type": "json_object"}
+
+    r = requests.post(url, headers=headers, data=json.dumps(payload), timeout=timeout)
+    r.raise_for_status()
+    data = r.json()
+
+    msg = data["choices"][0]["message"]["content"]
+
+    if as_json:
+        return json.loads(normalize_to_json(msg))
+    return msg
+
 
 
 
