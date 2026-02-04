@@ -76,7 +76,7 @@ def get_response_image_txt_json(
     gemini_models=["gemini-3-pro-preview","gemini-2.5-pro","gemini-2.5-flash"]
     grok_models = ["grok-4-fast-reasoning", "grok-4-fast-non-reasoning","grok-4","grok-2-vision","grok-2-vision-1212"]
     claude_models = ["claude-3-5-sonnet-latest","claude-sonnet-4-5-20250929","claude-sonnet-4-5-latest"]
-    open_router=["qwen/qwen3-vl-32b-instruct","openai/gpt-5","z-ai/glm-4.6v","qwen/qwen3-vl-32b-instruct","qwen/qwen3-vl-8b-instruct"]
+    open_router=["moonshotai/kimi-k2.5","openai/gpt-5.2","qwen/qwen3-vl-32b-instruct","openai/gpt-5","z-ai/glm-4.6v","qwen/qwen3-vl-32b-instruct","qwen/qwen3-vl-8b-instruct"]
     l = len(messages)
     for i in range(4):
         messages = messages[:l]
@@ -208,6 +208,7 @@ def get_response_image_txt_json_openrouter(
     }
     if as_json:
         payload["response_format"] = {"type": "json_object"}
+        payload['messages'].append({"role": "user", "content": "Respond with raw JSON only. Do not use Markdown.Do not wrap the response in code fences. Output must be directly parsable by JSON.parse."})
 
     r = requests.post(url, headers=headers, data=json.dumps(payload), timeout=timeout)
     r.raise_for_status()
